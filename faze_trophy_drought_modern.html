@@ -1,0 +1,336 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FaZe CS2 Trophy Drought</title>
+    <link href="https://fonts.cdnfonts.com/css/sf-pro-display" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        body {
+            font-family: 'SF Pro Display', -apple-system, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #1c2526;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        .container {
+            max-width: 1000px;
+            width: 90%;
+            padding: 24px;
+            background: rgba(40, 44, 52, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.5s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 16px;
+            color: #ffffff;
+        }
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+            margin: 0 0 20px;
+            color: #d1d4db;
+        }
+        .highlight {
+            color: #ff6b6b;
+            font-weight: 600;
+        }
+        canvas {
+            max-width: 100%;
+            border-radius: 12px;
+            background: #2c3435;
+            padding: 16px;
+        }
+        .note {
+            font-size: 14px;
+            color: #a1a5b7;
+            margin-top: 16px;
+        }
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-top: 24px;
+            background: #2c3435;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #3a4243;
+        }
+        th {
+            background: #353b48;
+            font-weight: 600;
+            color: #ffffff;
+        }
+        td {
+            color: #d1d4db;
+        }
+        tr {
+            transition: background 0.2s;
+        }
+        tr:hover {
+            background: #3a4243;
+        }
+        .past { color: #ff6b6b; font-weight: 600; }
+        .upcoming { color: #4b6bff; font-weight: 600; }
+        @media (max-width: 600px) {
+            .container { padding: 16px; }
+            h1 { font-size: 24px; }
+            p, .note { font-size: 14px; }
+            th, td { font-size: 12px; padding: 8px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>FaZe CS2 Trophy Drought</h1>
+        <p>As of October 16, 2025, it’s been <span class="highlight" id="currentDays">551</span> days since FaZe Clan's last CS2 trophy win at IEM Chengdu 2024. Hover over points for tournament details and finishes. Tap legend to toggle lines.</p>
+        <canvas id="trophyDroughtChart"></canvas>
+        <p class="note">
+            <strong>Notes:</strong> Past tournaments (up to CS Asia Championships 2025) in red; upcoming in blue. Finishes sourced from Liquipedia, HLTV, Esports Earnings. CS Asia Championships 2025 ongoing (FaZe 9th-12th so far). Check HLTV.org for updates.
+        </p>
+        <h3>Past Tournament Finishes</h3>
+        <table>
+            <thead>
+                <tr><th>Tournament</th><th>Start Date</th><th>Finish</th><th>Days Since Win</th></tr>
+            </thead>
+            <tbody id="finishesTable"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // Data: Tournaments, days, and finishes
+        const tournamentData = [
+            { label: 'IEM Chengdu 2024', days: 0, finish: '1st', date: '2024-04-08' },
+            { label: 'IEM Dallas 2024', days: 43, finish: '3rd-4th', date: '2024-05-27' },
+            { label: 'Esports World Cup 2024', days: 94, finish: '5th-8th', date: '2024-07-17' },
+            { label: 'BLAST Fall Final 2024', days: 164, finish: '3rd-4th', date: '2024-09-25' },
+            { label: 'Shanghai Major 2024', days: 231, finish: '2nd', date: '2024-12-01' },
+            { label: 'BLAST Rivals Spring 2025', days: 276, finish: '5th', date: '2025-01-15' },
+            { label: 'PGL Cluj-Napoca 2025', days: 302, finish: '5th-6th', date: '2025-02-10' },
+            { label: 'IEM Katowice 2025', days: 317, finish: '3rd-4th', date: '2025-02-25' },
+            { label: 'PGL Bucharest 2025', days: 358, finish: '3rd', date: '2025-04-07' },
+            { label: 'Austin Major 2025', days: 421, finish: '3rd-4th', date: '2025-06-09' },
+            { label: 'Esports World Cup 2025', days: 443, finish: '9th-12th', date: '2025-07-01' },
+            { label: 'IEM Cologne 2025', days: 465, finish: '5th-8th', date: '2025-07-23' },
+            { label: 'BLAST Spring Final 2025', days: 485, finish: '3rd-4th', date: '2025-08-12' },
+            { label: 'FISSURE Playground 2025', days: 514, finish: '9th', date: '2025-09-10' },
+            { label: 'BLAST Open Fall 2025', days: 524, finish: '5th', date: '2025-09-20' },
+            { label: 'CS Asia Champs 2025', days: 548, finish: '9th-12th (ongoing)', date: '2025-10-14' }
+        ];
+        const upcomingData = [
+            { label: 'ESL Pro League S22', days: 554, finish: 'TBD', date: '2025-10-20' },
+            { label: 'BLAST Bounty Fall 2025', days: 562, finish: 'TBD', date: '2025-10-28' },
+            { label: 'YaLLa Compass S2', days: 575, finish: 'TBD', date: '2025-11-10' },
+            { label: 'PGL Belgrade 2025', days: 583, finish: 'TBD', date: '2025-11-18' },
+            { label: 'Budapest Major 2025', days: 589, finish: 'TBD', date: '2025-11-24' },
+            { label: 'CS2 Major Winter 2025', days: 596, finish: 'TBD', date: '2025-12-01' }
+        ];
+        const allLabels = [...tournamentData.map(d => d.label), ...upcomingData.map(d => d.label)];
+        const pastDays = tournamentData.map(d => d.days);
+        const upcomingDays = [...Array(tournamentData.length).fill(null), ...upcomingData.map(d => d.days)];
+        const finishesPast = tournamentData.map(d => d.finish);
+        const finishesUpcoming = upcomingData.map(d => d.finish);
+
+        // Auto-calculate current days
+        const lastWin = new Date('2024-04-14');
+        const today = new Date('2025-10-16');
+        const currentDays = Math.floor((today - lastWin) / (1000 * 60 * 60 * 24));
+        document.getElementById('currentDays').textContent = currentDays;
+
+        // Populate table
+        const tableBody = document.getElementById('finishesTable');
+        tournamentData.forEach(item => {
+            const row = tableBody.insertRow();
+            row.innerHTML = `<td>${item.label}</td><td>${item.date}</td><td class="past">${item.finish}</td><td>${item.days}</td>`;
+        });
+
+        // Chart
+        const ctx = document.getElementById('trophyDroughtChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: allLabels,
+                datasets: [
+                    {
+                        label: 'Days Since Last Trophy (Past)',
+                        data: pastDays,
+                        borderColor: '#ff6b6b',
+                        backgroundColor: 'rgba(255, 107, 107, 0.3)',
+                        fill: true,
+                        tension: 0.2,
+                        pointRadius: 6,
+                        pointHoverRadius: 10,
+                        datalabels: {
+                            display: 'auto',
+                            align: 'top',
+                            offset: 8,
+                            color: '#ff6b6b',
+                            font: { size: 12, weight: 'bold' },
+                            formatter: (value, ctx) => finishesPast[ctx.dataIndex] || ''
+                        }
+                    },
+                    {
+                        label: 'Days Since Last Trophy (Upcoming)',
+                        data: upcomingDays,
+                        borderColor: '#4b6bff',
+                        backgroundColor: 'rgba(75, 107, 255, 0.3)',
+                        fill: true,
+                        tension: 0.2,
+                        pointRadius: 6,
+                        pointHoverRadius: 10,
+                        datalabels: {
+                            display: 'auto',
+                            align: 'top',
+                            offset: 8,
+                            color: '#4b6bff',
+                            font: { size: 12, weight: 'bold' },
+                            formatter: (value, ctx) => finishesUpcoming[ctx.dataIndex - tournamentData.length] || ''
+                        }
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        display: true,
+                        labels: { color: '#ffffff', font: { size: 14 } },
+                        onClick: (e, legendItem, legend) => {
+                            const index = legendItem.datasetIndex;
+                            const ci = legend.chart;
+                            ci.getDatasetMeta(index).hidden = !ci.getDatasetMeta(index).hidden;
+                            ci.update();
+                        }
+                    },
+                    title: {
+                        display: true,
+                        text: 'FaZe CS2 Trophy Drought: Days Since IEM Chengdu 2024',
+                        color: '#ffffff',
+                        font: { size: 20, weight: '600' }
+                    },
+                    annotation: {
+                        annotations: {
+                            line1: {
+                                type: 'line',
+                                xMin: tournamentData[tournamentData.length - 1].label,
+                                xMax: tournamentData[tournamentData.length - 1].label,
+                                borderColor: '#a1a5b7',
+                                borderWidth: 2,
+                                label: {
+                                    content: 'Today (Oct 16, 2025)',
+                                    display: true,
+                                    position: 'top',
+                                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                                    color: '#ffffff',
+                                    font: { size: 12 }
+                                }
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                        titleColor: '#ffffff',
+                        bodyColor: '#d1d4db',
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y;
+                                const idx = context.dataIndex;
+                                let finish = '';
+                                if (idx < tournamentData.length) {
+                                    finish = tournamentData[idx].finish;
+                                } else {
+                                    finish = upcomingData[idx - tournamentData.length].finish;
+                                }
+                                return `${label}: ${value} days (${context.label} - ${finish})`;
+                            }
+                        }
+                    },
+                    datalabels: {
+                        color: '#ffffff',
+                        font: { size: 10 },
+                        formatter: (value, ctx) => {
+                            const idx = ctx.dataIndex;
+                            return idx < tournamentData.length ? finishesPast[idx] : finishesUpcoming[idx - tournamentData.length];
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Days Since Last Trophy', color: '#ffffff', font: { size: 14 } },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#d1d4db' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Tournament (Start Date)', color: '#ffffff', font: { size: 14 } },
+                        grid: { display: false },
+                        ticks: { color: '#d1d4db', autoSkip: false, maxRotation: 45, minRotation: 45 }
+                    }
+                }
+            },
+            plugins: [ChartDataLabels]
+        });
+    </script>
+</body>
+</html>
